@@ -5,9 +5,14 @@ from dotenv import load_dotenv
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(os.path.join(BASE_DIR, ".env"), override=True)
 
-API_KEY = os.getenv("XAI_API_KEY")
+API_KEY = os.getenv("XAI_API_KEY", "").strip()
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
 
-if API_KEY and API_KEY.startswith("gsk_"):
+if GROQ_API_KEY:
+    API_KEY = GROQ_API_KEY
+    base_url = "https://api.groq.com/openai/v1"
+    models_to_test = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+elif API_KEY and API_KEY.startswith("gsk_"):
     base_url = "https://api.groq.com/openai/v1"
     models_to_test = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
 elif API_KEY:
@@ -16,6 +21,9 @@ elif API_KEY:
 else:
     base_url = "https://api.x.ai/v1"
     models_to_test = []
+
+if not API_KEY:
+    raise SystemExit("Set GROQ_API_KEY or XAI_API_KEY in .env before running this test.")
 
 client = OpenAI(
     api_key=API_KEY,

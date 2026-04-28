@@ -1,11 +1,12 @@
 import os
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify, render_template, Response
 from openai import OpenAI
 from dotenv import load_dotenv
 import logging
 
 # Configure basic logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.getLogger("werkzeug").setLevel(logging.ERROR)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(os.path.join(BASE_DIR, ".env"))
@@ -18,6 +19,10 @@ GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 
 def _get_api_key() -> str | None:
     load_dotenv(os.path.join(BASE_DIR, ".env"), override=True)
+    groq_api_key = os.getenv("GROQ_API_KEY", "").strip()
+    if groq_api_key:
+        return groq_api_key
+
     api_key = os.getenv("XAI_API_KEY", "").strip()
     return api_key or None
 
@@ -156,11 +161,17 @@ def _build_local_chat_reply(user_message: str) -> str:
     )
 
 
-def _build_provider_error_reply(provider: str, user_message: str) -> str:
+def _build_provider_error_reply(provider: str, user_message: str, error: Exception) -> str:
+    if provider == "xai" and _is_permission_or_billing_error(error):
+        return (
+            "Your xAI key does not have credits or permission right now, so I switched to local chore-assistant mode. "
+            "Add credits to xAI or set a working GROQ_API_KEY or XAI_API_KEY."
+        )
+
     if provider == "groq":
         return (
             "Groq is not returning a usable completion for this key right now, so I switched to local chore-assistant mode. "
-            "Check that the Groq key is active and that the selected model exists on your account."
+            "Check that GROQ_API_KEY is active and that the selected model exists on your account."
         )
 
     return _build_local_chat_reply(user_message)
@@ -174,6 +185,10 @@ tasks = []
 @app.route('/')
 def index():
     return render_template('index.html')
+
+@app.route('/favicon.ico')
+def favicon():
+    return Response(status=204)
 
 # --- API Endpoints ---
 
@@ -280,11 +295,15 @@ def chat():
             raise last_error
     except Exception as e:
         error_msg = str(e)
-        logging.error("Error calling %s API: %s", provider or "AI", error_msg, exc_info=True)
         if _is_permission_or_billing_error(e):
-            return jsonify({"reply": _build_provider_error_reply(provider or "xai", user_message), "mode": "local", "error": "xai_billing_or_permission"}), 200
+            logging.warning("AI provider %s rejected the request: %s", provider or "AI", error_msg)
+            return jsonify({"reply": _build_provider_error_reply(provider or "xai", user_message, e), "mode": "local", "error": "xai_billing_or_permission"}), 200
 
-        return jsonify({"reply": _build_provider_error_reply(provider or "xai", user_message), "mode": "local", "error": "xai_request_failed"}), 200
+        logging.error("Error calling %s API: %s", provider or "AI", error_msg, exc_info=True)
+        return jsonify({"reply": _build_provider_error_reply(provider or "xai", user_message, e), "mode": "local", "error": "xai_request_failed"}), 200
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    port = int(os.getenv("PORT", "5000"))
+    debug = os.getenv("FLASK_DEBUG", "").strip() == "1"
+    print(f"Local app is running at http://127.0.0.1:{port}")
+    app.run(host="0.0.0.0", port=port, debug=debug)

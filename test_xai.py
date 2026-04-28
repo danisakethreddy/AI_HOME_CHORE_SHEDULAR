@@ -2,15 +2,27 @@ import os
 from openai import OpenAI
 from dotenv import load_dotenv
 
-load_dotenv()
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+load_dotenv(os.path.join(BASE_DIR, ".env"), override=True)
 
-API_KEY = os.getenv("XAI_API_KEY")
+groq_api_key = os.getenv("GROQ_API_KEY", "").strip()
+xai_api_key = os.getenv("XAI_API_KEY", "").strip()
+
+if groq_api_key:
+    api_key = groq_api_key
+    base_url = "https://api.groq.com/openai/v1"
+    models_to_test = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+elif xai_api_key:
+    api_key = xai_api_key
+    base_url = "https://api.x.ai/v1"
+    models_to_test = ["grok-3", "grok-2-latest", "grok-2", "grok-beta", "grok-flash"]
+else:
+    raise SystemExit("Set GROQ_API_KEY or XAI_API_KEY in .env before running this test.")
+
 client = OpenAI(
-    api_key=API_KEY,
-    base_url="https://api.x.ai/v1",
+    api_key=api_key,
+    base_url=base_url,
 )
-
-models_to_test = ["grok-2", "grok-2-latest", "grok-beta", "grok-flash", "grok-3"]
 
 for model in models_to_test:
     print(f"Testing {model}...")
@@ -18,7 +30,7 @@ for model in models_to_test:
         response = client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": "hi"}],
-            max_tokens=1
+            max_tokens=1,
         )
         print(f"Success with {model}!")
         break

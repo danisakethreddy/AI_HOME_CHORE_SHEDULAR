@@ -1,26 +1,165 @@
 import os
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify, render_template, Response
 from openai import OpenAI
 from dotenv import load_dotenv
-import random
 import logging
 
 # Configure basic logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.getLogger("werkzeug").setLevel(logging.ERROR)
 
-load_dotenv()
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+load_dotenv(os.path.join(BASE_DIR, ".env"))
 
 app = Flask(__name__)
 
-# Configure xAI Grok API
-API_KEY = os.getenv("XAI_API_KEY")
-if API_KEY:
-    client = OpenAI(
-        api_key=API_KEY,
-        base_url="https://api.x.ai/v1",
+XAI_BASE_URL = "https://api.x.ai/v1"
+GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+
+
+def _detect_provider(api_key: str) -> str:
+    if api_key.startswith("gsk_"):
+        return "groq"
+    if api_key.startswith("xai-") or api_key.startswith("xai_"):
+        return "xai"
+
+    return os.getenv("AI_PROVIDER", "xai").strip().lower() or "xai"
+
+
+def _get_provider_config() -> tuple[str | None, str | None]:
+    load_dotenv(os.path.join(BASE_DIR, ".env"), override=True)
+
+    groq_api_key = os.getenv("GROQ_API_KEY", "").strip()
+    xai_api_key = os.getenv("XAI_API_KEY", "").strip()
+
+    if groq_api_key:
+        return groq_api_key, "groq"
+
+    if xai_api_key:
+        return xai_api_key, _detect_provider(xai_api_key)
+
+    return None, None
+
+
+def _get_base_url(provider: str) -> str:
+    if provider == "groq":
+        return GROQ_BASE_URL
+    return XAI_BASE_URL
+
+
+def _create_client_and_provider() -> tuple[OpenAI | None, str | None]:
+    api_key, provider = _get_provider_config()
+    if not api_key or not provider:
+        return None, None
+
+    return OpenAI(
+        api_key=api_key,
+        base_url=_get_base_url(provider),
+    ), provider
+
+
+def _get_model_candidates(provider: str) -> list[str]:
+    configured_model = os.getenv("AI_MODEL", "").strip()
+
+    if provider == "groq":
+        fallback_models = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+    else:
+        fallback_models = ["grok-3", "grok-2-latest", "grok-2", "grok-beta", "grok-flash"]
+
+    if configured_model:
+        return [configured_model] + [model for model in fallback_models if model != configured_model]
+
+    return fallback_models
+
+
+def _is_permission_or_billing_error(error: Exception) -> bool:
+    status_code = getattr(error, "status_code", None)
+    if status_code == 403:
+        return True
+
+    error_text = str(error).lower()
+    return any(
+        keyword in error_text
+        for keyword in (
+            "403",
+            "permission",
+            "forbidden",
+            "credits",
+            "license",
+            "billing",
+        )
     )
-else:
-    client = None
+
+
+def _is_funding_or_license_error(error: Exception) -> bool:
+    error_text = str(error).lower()
+    return any(keyword in error_text for keyword in ("credits", "license", "billing"))
+
+
+def _build_local_chat_reply(user_message: str) -> str:
+    message = user_message.strip().lower()
+    member_names = [member["name"] for member in members]
+    task_names = [task["name"] for task in tasks]
+
+    if not member_names and not task_names:
+        return (
+            "Hi! I can help you organize chores or give cleaning advice. "
+            "Add a few members and tasks, and I can suggest a fair split."
+        )
+
+    if any(word in message for word in ("hello", "hi", "hey")):
+        return (
+            "Hi! I can help you organize chores, split tasks fairly, or suggest cleaning tips. "
+            f"Right now I know about members: {', '.join(member_names) or 'none yet'} and tasks: {', '.join(task_names) or 'none yet'}."
+        )
+
+    if any(word in message for word in ("schedule", "split", "fair", "assign", "distribution")):
+        if member_names and task_names:
+            return (
+                "For a fair schedule, assign the highest-priority chores first and rotate the rest evenly. "
+                f"With your current setup, members are {', '.join(member_names)} and tasks are {', '.join(task_names)}. "
+                "Use Auto-Schedule to generate the assignment, then adjust anything manually if needed."
+            )
+        if member_names:
+            return (
+                f"You have members {', '.join(member_names)}, but no tasks yet. Add chores first, then I can help split them fairly."
+            )
+        if task_names:
+            return (
+                f"You have tasks {', '.join(task_names)}, but no members yet. Add household members first, then I can assign them fairly."
+            )
+
+    if any(word in message for word in ("clean", "cleaning", "tip", "advice")):
+        return (
+            "A practical cleaning flow is: clear clutter first, dust top to bottom, then vacuum or mop last. "
+            "For stubborn chores, break them into small timed sessions and assign one person per room."
+        )
+
+    if task_names:
+        return (
+            "I am in local assistant mode right now. Based on your current chores, you can make progress by tackling "
+            f"{task_names[0]} first{'' if len(task_names) == 1 else ' and then the remaining tasks one by one'}."
+        )
+
+    return (
+        "I am in local assistant mode right now. Tell me about your chores or ask for a fair task split, and I will help."
+    )
+
+
+def _build_provider_error_reply(provider: str, user_message: str, error: Exception) -> str:
+    if provider == "xai" and _is_permission_or_billing_error(error):
+        return (
+            "Your xAI key does not have credits or permission right now, so I switched to local chore-assistant mode. "
+            "Add credits to xAI or set a working GROQ_API_KEY or XAI_API_KEY."
+        )
+
+    if provider == "groq":
+        return (
+            "Groq is not returning a usable completion for this key right now, so I switched to local chore-assistant mode. "
+            "Check that GROQ_API_KEY is active and that the selected model exists on your account."
+        )
+
+    return _build_local_chat_reply(user_message)
 
 # In-memory data storage
 # members: list of dicts {"id": int, "name": str, "availability": list[str]}
@@ -31,6 +170,10 @@ tasks = []
 @app.route('/')
 def index():
     return render_template('index.html')
+
+@app.route('/favicon.ico')
+def favicon():
+    return Response(status=204)
 
 # --- API Endpoints ---
 
@@ -100,33 +243,59 @@ def chat():
     """
     Dedicated AI Chatbot Endpoint using xAI Grok API.
     """
-    user_message = request.json.get("message")
+    payload = request.get_json(silent=True) or {}
+    user_message = payload.get("message")
     
     if not user_message:
         return jsonify({"error": "Message is required"}), 400
 
+    client, provider = _create_client_and_provider()
     if not client:
-        return jsonify({"reply": "System: API Key is not configured. Please add XAI_API_KEY to your .env file."}), 200
+        return jsonify({"reply": _build_local_chat_reply(user_message), "mode": "local"}), 200
+
+    context = "You are a helpful AI assistant for a Home Chore Scheduler app. "
+    context += "Help users organize tasks, suggest fair ways to split chores, and give cleaning tips. "
+    context += f"Current tasks in system: {[t['name'] for t in tasks]}. "
+    context += f"Current household members: {[m['name'] for m in members]}. "
 
     try:
-        # Provide context to the AI
-        context = "You are a helpful AI assistant for a Home Chore Scheduler app. "
-        context += "Help users organize tasks, suggest fair ways to split chores, and give cleaning tips. "
-        context += f"Current tasks in system: {[t['name'] for t in tasks]}. "
-        context += f"Current household members: {[m['name'] for m in members]}. "
-        
-        response = client.chat.completions.create(
-            model="grok-3", # Using grok-3 as it is the active xAI model
-            messages=[
-                {"role": "system", "content": context},
-                {"role": "user", "content": user_message},
-            ],
-        )
-        return jsonify({"reply": response.choices[0].message.content})
+        last_error = None
+        for model_name in _get_model_candidates(provider or "xai"):
+            try:
+                response = client.chat.completions.create(
+                    model=model_name,
+                    messages=[
+                        {"role": "system", "content": context},
+                        {"role": "user", "content": user_message},
+                    ],
+                )
+                return jsonify({"reply": response.choices[0].message.content, "model": model_name})
+            except Exception as model_error:
+                last_error = model_error
+                if _is_funding_or_license_error(model_error):
+                    raise model_error
+                logging.warning("AI model %s failed, trying next model: %s", model_name, model_error)
+
+        if last_error is not None:
+            raise last_error
     except Exception as e:
-        error_msg = str(e)
-        logging.error(f"Error calling xAI API: {error_msg}", exc_info=True)
-        return jsonify({"reply": f"Sorry, I am having trouble connecting to my AI brain right now. Error details: {error_msg}"}), 500
+        error_code = "ai_request_failed"
+        if _is_permission_or_billing_error(e):
+            logging.warning("AI provider %s rejected the request: %s", provider or "AI", e)
+            error_code = "ai_billing_or_permission"
+        else:
+            logging.error("Error calling %s API: %s", provider or "AI", e, exc_info=True)
+
+        return jsonify(
+            {
+                "reply": _build_provider_error_reply(provider or "xai", user_message, e),
+                "mode": "local",
+                "error": error_code,
+            }
+        ), 200
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    port = int(os.getenv("PORT", "5000"))
+    debug = os.getenv("FLASK_DEBUG", "").strip() == "1"
+    print(f"Local app is running at http://127.0.0.1:{port}")
+    app.run(host="0.0.0.0", port=port, debug=debug)
