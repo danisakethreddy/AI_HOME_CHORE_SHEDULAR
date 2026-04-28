@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Chore Scheduler</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/styles.css">
+    <!-- FontAwesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <nav class="sidebar glass-panel">
+            <div class="logo">
+                <i class="fa-solid fa-broom-ball"></i>
+                <h2>ChoreFlow AI</h2>
+            </div>
+            <ul class="nav-links">
+                <li class="active" data-tab="dashboard"><i class="fa-solid fa-chart-pie"></i> Dashboard</li>
+                <li data-tab="members"><i class="fa-solid fa-users"></i> Members</li>
+                <li data-tab="tasks"><i class="fa-solid fa-list-check"></i> Tasks</li>
+            </ul>
+        </nav>
+
+        <!-- Main Content Area -->
+        <main class="content-area">
+            <!-- Dashboard View -->
+            <section id="dashboard" class="tab-content active">
+                <header>
+                    <h1>Overview</h1>
+                    <button id="run-schedule-btn" class="btn-primary">
+                        <i class="fa-solid fa-wand-magic-sparkles"></i> Auto-Schedule
+                    </button>
+                </header>
+                <div class="dashboard-grid">
+                    <div class="glass-panel stat-card">
+                        <h3>Total Tasks</h3>
+                        <p id="stat-total-tasks">0</p>
+                    </div>
+                    <div class="glass-panel stat-card">
+                        <h3>Members</h3>
+                        <p id="stat-total-members">0</p>
+                    </div>
+                </div>
+                <div class="schedule-view glass-panel">
+                    <h3>Current Schedule</h3>
+                    <div id="schedule-container" class="schedule-list">
+                        <p class="empty-state">No tasks scheduled yet. Add members and tasks, then Auto-Schedule!</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Members View -->
+            <section id="members" class="tab-content">
+                <header>
+                    <h1>Household Members</h1>
+                </header>
+                <div class="two-col">
+                    <div class="glass-panel form-container">
+                        <h3>Add New Member</h3>
+                        <form id="add-member-form">
+                            <div class="form-group">
+                                <label for="member-name">Name</label>
+                                <input type="text" id="member-name" required placeholder="e.g., Alice">
+                            </div>
+                            <button type="submit" class="btn-secondary">Add Member</button>
+                        </form>
+                    </div>
+                    <div class="glass-panel list-container">
+                        <h3>Current Members</h3>
+                        <ul id="members-list" class="item-list"></ul>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Tasks View -->
+            <section id="tasks" class="tab-content">
+                <header>
+                    <h1>Chore List</h1>
+                </header>
+                <div class="two-col">
+                    <div class="glass-panel form-container">
+                        <h3>Add New Task</h3>
+                        <form id="add-task-form">
+                            <div class="form-group">
+                                <label for="task-name">Task Name</label>
+                                <input type="text" id="task-name" required placeholder="e.g., Wash Dishes">
+                            </div>
+                            <div class="form-group">
+                                <label for="task-priority">Priority</label>
+                                <select id="task-priority">
+                                    <option value="High">High</option>
+                                    <option value="Medium" selected>Medium</option>
+                                    <option value="Low">Low</option>
+                                </select>
+                            </div>
+                            <button type="submit" class="btn-secondary">Add Task</button>
+                        </form>
+                    </div>
+                    <div class="glass-panel list-container">
+                        <h3>Pending Tasks</h3>
+                        <ul id="tasks-list" class="item-list"></ul>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- AI Chatbot Floating Widget -->
+        <div class="chatbot-widget">
+            <button id="chatbot-toggle" class="chatbot-btn">
+                <i class="fa-solid fa-robot"></i>
+            </button>
+            <div id="chatbot-window" class="chatbot-window glass-panel hidden">
+                <div class="chat-header">
+                    <h3>AI Assistant</h3>
+                    <div>
+                        <button id="chatbot-refresh" title="Clear Chat" style="margin-right: 10px;"><i class="fa-solid fa-arrows-rotate"></i></button>
+                        <button id="chatbot-close"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
+                </div>
+                <div class="chat-body" id="chat-messages">
+                    <div class="message ai">Hi! I can help you organize chores or give cleaning advice.</div>
+                </div>
+                <div class="chat-footer">
+                    <input type="text" id="chat-input" placeholder="Ask something...">
+                    <button id="chat-send"><i class="fa-solid fa-paper-plane"></i></button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
