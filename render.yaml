@@ -1,13 +1,12 @@
 services:
   - type: web
     name: home-chore-scheduler
-    runtime: python
+    env: python
+    pythonVersion: 3.12.0
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn --bind 0.0.0.0:$PORT app:app
     healthCheckPath: /
     envVars:
-      - key: PYTHON_VERSION
-        value: 3.14.3
       - key: GROQ_API_KEY
         sync: false
       - key: XAI_API_KEY

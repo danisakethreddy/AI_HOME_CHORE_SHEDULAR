@@ -30,11 +30,10 @@ def _get_provider_config() -> tuple[str | None, str | None]:
     load_dotenv(os.path.join(BASE_DIR, ".env"), override=True)
 
     groq_api_key = os.getenv("GROQ_API_KEY", "").strip()
-    xai_api_key = os.getenv("XAI_API_KEY", "").strip()
-
     if groq_api_key:
         return groq_api_key, "groq"
 
+    xai_api_key = os.getenv("XAI_API_KEY", "").strip()
     if xai_api_key:
         return xai_api_key, _detect_provider(xai_api_key)
 
@@ -56,6 +55,20 @@ def _create_client_and_provider() -> tuple[OpenAI | None, str | None]:
         api_key=api_key,
         base_url=_get_base_url(provider),
     ), provider
+
+
+def _log_provider_status() -> None:
+    api_key, provider = _get_provider_config()
+    if provider == "groq":
+        logging.info("Using Groq provider via GROQ_API_KEY.")
+    elif provider == "xai":
+        logging.info("Using xAI provider via XAI_API_KEY.")
+    else:
+        logging.warning("No AI provider key configured. Chat will use local fallback mode.")
+
+
+# Initialize provider status logging
+_log_provider_status()
 
 
 def _get_model_candidates(provider: str) -> list[str]:
@@ -237,6 +250,20 @@ def generate_schedule():
         member_task_count[least_assigned_member] += 1
 
     return jsonify({"tasks": tasks, "distribution": member_task_count})
+
+@app.route('/api/health', methods=['GET'])
+def health():
+    groq_key = bool(os.getenv("GROQ_API_KEY", "").strip())
+    xai_key = bool(os.getenv("XAI_API_KEY", "").strip())
+    _, provider = _get_provider_config()
+
+    return jsonify({
+        "status": "ok",
+        "provider": provider or "none",
+        "groq_key_configured": groq_key,
+        "xai_key_configured": xai_key,
+    })
+
 
 @app.route('/api/chat', methods=['POST'])
 def chat():
